@@ -1,0 +1,198 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable hardened helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'nickname',
+          'avatarColor',
+          'visitedZones',
+          'completedQuizzes',
+          'stampsCount',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'nickname',
+          'avatarColor',
+          'visitedZones',
+          'completedQuizzes',
+          'stampsCount',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && isValidId(data.uid)
+        && isValidString(data.nickname, 1, 40)
+        && data.avatarColor in ['sky', 'emerald', 'amber', 'coral']
+        && data.visitedZones is list
+        && data.visitedZones.size() <= 10
+        && (data.visitedZones.size() == 0 || data.visitedZones[0] is string)
+        && data.completedQuizzes is list
+        && data.completedQuizzes.size() <= 30
+        && (data.completedQuizzes.size() == 0 || data.completedQuizzes[0] is string)
+        && data.stampsCount is int
+        && data.stampsCount >= 0
+        && data.stampsCount <= 50
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidQaEntry(data) {
+      return data.keys().hasAll([
+          'userId',
+          'zone',
+          'memeWord',
+          'question',
+          'properKorean',
+          'empathyThought',
+          'answer',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'zone',
+          'memeWord',
+          'question',
+          'properKorean',
+          'empathyThought',
+          'answer',
+          'createdAt'
+        ])
+        && data.userId == request.auth.uid
+        && isValidId(data.userId)
+        && data.zone in ['meme_meaning', 'proper_korean', 'empathy_mirror', 'lounge']
+        && isValidString(data.memeWord, 1, 60)
+        && isValidString(data.question, 1, 240)
+        && isValidString(data.properKorean, 0, 240)
+        && isValidString(data.empathyThought, 0, 300)
+        && isValidString(data.answer, 1, 600)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSharedPhrase(data) {
+      return data.keys().hasAll([
+          'authorId',
+          'authorNickname',
+          'visibility',
+          'memeWord',
+          'properSentence',
+          'empathyNote',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'authorId',
+          'authorNickname',
+          'visibility',
+          'memeWord',
+          'properSentence',
+          'empathyNote',
+          'createdAt'
+        ])
+        && data.authorId == request.auth.uid
+        && isValidId(data.authorId)
+        && isValidString(data.authorNickname, 1, 40)
+        && data.visibility == 'public'
+        && isValidString(data.memeWord, 1, 60)
+        && isValidString(data.properSentence, 1, 180)
+        && isValidString(data.empathyNote, 0, 200)
+        && data.createdAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if isSignedIn() && existing().uid == request.auth.uid;
+      allow create: if isValidId(userId)
+        && isVerified()
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isVerified()
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'nickname',
+          'avatarColor',
+          'visitedZones',
+          'completedQuizzes',
+          'stampsCount',
+          'updatedAt'
+        ]);
+      allow delete: if isValidId(userId) && isVerified() && isOwner(userId);
+
+      match /qaEntries/{entryId} {
+        allow get: if isValidId(userId) && isValidId(entryId) && isOwner(userId);
+        allow list: if isSignedIn() && existing().userId == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(entryId)
+          && isVerified()
+          && isOwner(userId)
+          && isValidQaEntry(incoming())
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow update: if false;
+        allow delete: if isValidId(userId)
+          && isValidId(entryId)
+          && isVerified()
+          && isOwner(userId)
+          && existing().userId == request.auth.uid;
+      }
+    }
+
+    match /sharedPhrases/{phraseId} {
+      allow get: if isValidId(phraseId) && isSignedIn() && existing().visibility == 'public';
+      allow list: if isSignedIn() && existing().visibility == 'public';
+      allow create: if isValidId(phraseId)
+        && isVerified()
+        && isValidSharedPhrase(incoming())
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(phraseId)
+        && isVerified()
+        && existing().authorId == request.auth.uid;
+    }
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Stores a 3rd-grade student explorer profile, avatar color, visited museum zones, completed quiz IDs, and stamp count.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the student."
+        },
+        "nickname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Student explorer nickname displayed in the museum."
+        },
+        "avatarColor": {
+          "type": "string",
+          "enum": ["sky", "emerald", "amber", "coral"],
+          "description": "Selected 3D character outfit color theme."
+        },
+        "visitedZones": {
+          "type": "array",
+          "description": "Bounded list of museum zone IDs explored by the student (max 10)."
+        },
+        "completedQuizzes": {
+          "type": "array",
+          "description": "Bounded list of completed quiz/mission IDs (max 30)."
+        },
+        "stampsCount": {
+          "type": "integer",
+          "description": "Total museum explorer stamps earned (0 to 50)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "nickname",
+        "avatarColor",
+        "visitedZones",
+        "completedQuizzes",
+        "stampsCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "QaEntry": {
+      "title": "QaEntry",
+      "description": "Stores a student's question, meme transformation, or empathy reflection along with the curator's explanation.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner Firebase Auth UID."
+        },
+        "zone": {
+          "type": "string",
+          "enum": ["meme_meaning", "proper_korean", "empathy_mirror", "lounge"],
+          "description": "Museum zone where this entry was created."
+        },
+        "memeWord": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "The meme or slang expression studied."
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "The student's question or practice prompt."
+        },
+        "properKorean": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 240,
+          "description": "Student's or curator's proper Korean version."
+        },
+        "empathyThought": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 300,
+          "description": "How someone unfamiliar with the meme might feel when hearing it."
+        },
+        "answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "description": "Curator explanation or quiz feedback."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        }
+      },
+      "required": [
+        "userId",
+        "zone",
+        "memeWord",
+        "question",
+        "properKorean",
+        "empathyThought",
+        "answer",
+        "createdAt"
+      ]
+    },
+    "SharedPhrase": {
+      "title": "SharedPhrase",
+      "description": "A proper Korean sentence shared by a student onto the museum's public inspiration board.",
+      "type": "object",
+      "properties": {
+        "authorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Author Firebase Auth UID."
+        },
+        "authorNickname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Non-PII explorer nickname."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public"],
+          "description": "Explicit visibility flag enforced by list rules."
+        },
+        "memeWord": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Original meme word."
+        },
+        "properSentence": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180,
+          "description": "Kind and proper Korean alternative sentence."
+        },
+        "empathyNote": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200,
+          "description": "Short reflection on how listeners feel."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        }
+      },
+      "required": [
+        "authorId",
+        "authorNickname",
+        "visibility",
+        "memeWord",
+        "properSentence",
+        "empathyNote",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Student explorer profile and museum progress."
+    },
+    "/users/{userId}/qaEntries/{entryId}": {
+      "schema": {
+        "$ref": "#/entities/QaEntry"
+      },
+      "description": "Personal Q&A notes, meme translations, and empathy reflections saved by the student."
+    },
+    "/sharedPhrases/{phraseId}": {
+      "schema": {
+        "$ref": "#/entities/SharedPhrase"
+      },
+      "description": "Shared classroom gallery wall of proper Korean replacements."
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "반짝반짝 바른 우리말 3D 미술관",
+  "description": "3D 캐릭터로 미술관을 탐험하며 밈의 뜻과 바른 우리말, 듣는 사람의 마음을 배우고 파이어베이스에 기록하는 초등 3학년 가상현실 학습 앱",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
