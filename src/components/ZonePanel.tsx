@@ -23,6 +23,7 @@ import {
 } from '../data/museumExhibits';
 import type { QaEntryDoc, SharedPhraseDoc } from '../services/firebase';
 import { playMuseumChime, speakKorean, stopSpeaking } from '../utils/audio';
+import { askCuratorApi, checkEmpathyApi, checkTransformApi } from '../utils/curatorClient';
 
 import welcomeImgUrl from '../assets/images/seodang_welcome_banner_1794710182161.jpg';
 import youngTeacherImgUrl from '../assets/images/seodang_young_teacher_1794712610117.jpg';
@@ -273,18 +274,10 @@ export function ZonePanel({
     setTransformLoading(true);
     setTransformError(null);
     try {
-      const res = await fetch('/api/curator/check-transform', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          memeWord: exhibit.memeWord,
-          studentSentence: studentSentence.trim(),
-        }),
+      const data = await checkTransformApi({
+        memeWord: exhibit.memeWord,
+        studentSentence: studentSentence.trim(),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || '따봄쌤 응답을 불러오지 못했어요.');
-      }
       setTransformResult(data);
       if (soundEnabled) playMuseumChime('success');
     } catch (err) {
@@ -299,19 +292,11 @@ export function ZonePanel({
     setEmpathyLoading(true);
     setEmpathyError(null);
     try {
-      const res = await fetch('/api/curator/empathy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          memeWord: exhibit.memeWord,
-          listenerRole,
-          studentGuess: empathyGuess.trim(),
-        }),
+      const data = await checkEmpathyApi({
+        memeWord: exhibit.memeWord,
+        listenerRole,
+        studentGuess: empathyGuess.trim(),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || '마음 거울 이야기를 불러오지 못했어요.');
-      }
       setEmpathyResult(data);
       if (soundEnabled) playMuseumChime('discover');
     } catch (err) {
@@ -323,29 +308,24 @@ export function ZonePanel({
 
   async function handleSubmitAsk(e: React.FormEvent) {
     e.preventDefault();
-    if (!askQuestion.trim() && !askMemeWord.trim()) return;
+    const typedMeme = askMemeWord.trim();
+    const typedQuestion = askQuestion.trim();
+    if (!typedQuestion && !typedMeme) return;
+
     setAskLoading(true);
     setAskError(null);
     try {
-      const targetMeme = askMemeWord.trim() || exhibit.memeWord;
       const targetQuestion =
-        askQuestion.trim() || `${targetMeme}의 뜻과 바른 우리말, 그리고 듣는 사람의 마음이 궁금해요!`;
-      const res = await fetch('/api/curator/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          memeWord: targetMeme,
-          question: targetQuestion,
-          zone: activeZone,
-        }),
+        typedQuestion || `${typedMeme}의 뜻과 바른 우리말, 그리고 듣는 사람의 마음이 궁금해요!`;
+      const data = await askCuratorApi({
+        memeWord: typedMeme,
+        question: targetQuestion,
+        zone: activeZone,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || '따봄쌤의 답변을 받지 못했어요.');
-      }
+      const resolvedTopic = data.topicLabel?.trim() || typedMeme || '내가 물어본 말';
       const nextResult = {
         ...data,
-        memeWord: targetMeme,
+        memeWord: resolvedTopic,
         question: targetQuestion,
       };
       setAskResult(nextResult);
@@ -353,7 +333,7 @@ export function ZonePanel({
 
       await onSaveQa({
         zone: activeZone === 'atrium' ? 'lounge' : activeZone,
-        memeWord: targetMeme,
+        memeWord: resolvedTopic,
         question: targetQuestion,
         properKorean: data.properKorean || '',
         empathyThought: data.empathyThought || '',
@@ -1055,7 +1035,7 @@ export function ZonePanel({
               <form onSubmit={handleSubmitAsk} className="space-y-3">
                 <div>
                   <label htmlFor="ask-meme" className="block text-xs font-semibold text-slate-700 mb-1">
-                    궁금한 밈이나 유행어
+                    궁금한 밈이나 유행어 (비워 두고 질문만 적어도 돼요)
                   </label>
                   <input
                     id="ask-meme"
