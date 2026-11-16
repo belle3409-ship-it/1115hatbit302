@@ -15,7 +15,6 @@ import {
   getFirestore,
   limit,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -128,6 +127,36 @@ export interface SharedPhraseDoc {
   properSentence: string;
   empathyNote: string;
   createdAt?: Timestamp;
+}
+
+export interface ClassroomQaDoc {
+  id: string;
+  authorId: string;
+  authorNickname: string;
+  visibility: 'public';
+  zone: Exclude<MuseumZoneId, 'atrium'>;
+  memeWord: string;
+  question: string;
+  properKorean: string;
+  empathyThought: string;
+  answer: string;
+  createdAt?: Timestamp;
+}
+
+const SCHOLAR_ID_KEY = 'seodang_scholar_id_v1';
+
+export function getOrCreateScholarId(): string {
+  try {
+    const existing = localStorage.getItem(SCHOLAR_ID_KEY);
+    if (existing && /^scholar_[a-zA-Z0-9_-]{8,50}$/.test(existing)) {
+      return existing;
+    }
+    const generated = `scholar_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(SCHOLAR_ID_KEY, generated);
+    return generated;
+  } catch {
+    return `scholar_${Date.now().toString(36)}_guest`;
+  }
 }
 
 export async function signInWithGoogle(): Promise<User> {
@@ -260,16 +289,94 @@ export function subscribeQaEntries(
   const q = query(
     collection(db, 'users', uid, 'qaEntries'),
     where('userId', '==', uid),
-    orderBy('createdAt', 'desc'),
-    limit(40),
+    limit(60),
   );
   return onSnapshot(
     q,
     (snapshot) => {
-      const items: QaEntryDoc[] = snapshot.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<QaEntryDoc, 'id'>),
-      }));
+      const items: QaEntryDoc[] = snapshot.docs
+        .map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<QaEntryDoc, 'id'>),
+        }))
+        .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
+        .slice(0, 40);
+      onData(items);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, path);
+      } catch (e) {
+        onError(e as Error);
+      }
+    },
+  );
+}
+
+export async function saveClassroomQa(
+  authorId: string,
+  nickname: string,
+  entry: {
+    zone: Exclude<MuseumZoneId, 'atrium'>;
+    memeWord: string;
+    question: string;
+    properKorean: string;
+    empathyThought: string;
+    answer: string;
+  },
+): Promise<string> {
+  const entryId = sanitizeId(`cqa_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
+  const entryPath = `classroomQa/${entryId}`;
+  const ref = doc(db, 'classroomQa', entryId);
+  try {
+    await setDoc(ref, {
+      authorId,
+      authorNickname: nickname.trim().slice(0, 40) || '3학년 학동',
+      visibility: 'public',
+      zone: entry.zone,
+      memeWord: entry.memeWord.trim().slice(0, 60) || '우리말 질문',
+      question: entry.question.trim().slice(0, 240) || '질문',
+      properKorean: entry.properKorean.trim().slice(0, 240),
+      empathyThought: entry.empathyThought.trim().slice(0, 300),
+      answer: entry.answer.trim().slice(0, 600) || '설명',
+      createdAt: serverTimestamp(),
+    });
+    return entryId;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, entryPath);
+  }
+}
+
+export async function deleteClassroomQa(entryId: string): Promise<void> {
+  const entryPath = `classroomQa/${entryId}`;
+  const ref = doc(db, 'classroomQa', entryId);
+  try {
+    await deleteDoc(ref);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, entryPath);
+  }
+}
+
+export function subscribeClassroomQa(
+  onData: (entries: ClassroomQaDoc[]) => void,
+  onError: (err: Error) => void,
+) {
+  const path = 'classroomQa';
+  const q = query(
+    collection(db, 'classroomQa'),
+    where('visibility', '==', 'public'),
+    limit(60),
+  );
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items: ClassroomQaDoc[] = snapshot.docs
+        .map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<ClassroomQaDoc, 'id'>),
+        }))
+        .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
+        .slice(0, 40);
       onData(items);
     },
     (error) => {
@@ -283,7 +390,7 @@ export function subscribeQaEntries(
 }
 
 export async function publishSharedPhrase(
-  uid: string,
+  authorId: string,
   nickname: string,
   payload: {
     memeWord: string;
@@ -296,8 +403,8 @@ export async function publishSharedPhrase(
   const ref = doc(db, 'sharedPhrases', phraseId);
   try {
     await setDoc(ref, {
-      authorId: uid,
-      authorNickname: nickname.trim().slice(0, 40) || '3학년 탐험가',
+      authorId,
+      authorNickname: nickname.trim().slice(0, 40) || '3학년 학동',
       visibility: 'public',
       memeWord: payload.memeWord.trim().slice(0, 60) || '우리말',
       properSentence: payload.properSentence.trim().slice(0, 180) || '고운 말을 써요.',
@@ -328,16 +435,18 @@ export function subscribeSharedPhrases(
   const q = query(
     collection(db, 'sharedPhrases'),
     where('visibility', '==', 'public'),
-    orderBy('createdAt', 'desc'),
-    limit(24),
+    limit(40),
   );
   return onSnapshot(
     q,
     (snapshot) => {
-      const items: SharedPhraseDoc[] = snapshot.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<SharedPhraseDoc, 'id'>),
-      }));
+      const items: SharedPhraseDoc[] = snapshot.docs
+        .map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<SharedPhraseDoc, 'id'>),
+        }))
+        .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
+        .slice(0, 24);
       onData(items);
     },
     (error) => {

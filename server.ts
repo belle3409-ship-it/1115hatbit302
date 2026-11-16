@@ -70,6 +70,32 @@ async function generateWithRetry<T>(
   throw lastErr || new Error('GENERATION_FAILED');
 }
 
+function isRestrictedForElementary(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) return false;
+  if (/(시발|씨발|씨팔|씨바|병신|지랄|개새끼|개새|느금|엄창|창녀|야동|야짤|섹스|에로|음란|19금|성인물|성관계|포르노|성폭력|성희롱|섹드립|패드립|부랄|존나|개존|엠창|썅|쌍년|쌍놈|미친놈|미친년|걸레년)/i.test(normalized)) {
+    return true;
+  }
+  if (/(?:^|[^가-힣])(보지|자지|꼬추|야스|야사|변태|섹|자위)(?:$|[^가-힣]|을|를|이|가|은|는|야|라|임)/i.test(normalized)) {
+    return true;
+  }
+  if (/(?:^|[^가-힣a-zA-Z0-9])(ㅅㅂ|ㅆㅂ|ㅂㅅ|ㅈㄹ|ㄱㅅㄲ|ㅈㄴ|ㄴㄱㅁ|ㄲㅈ)(?:$|[^가-힣a-zA-Z0-9])/.test(normalized)) {
+    return true;
+  }
+  if (/\b(fuck|fucking|shit|bitch|asshole|dick|pussy|cock|porn|sex|nsfw|hentai|whore|slut|wtf)\b/i.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
+const ELEMENTARY_SAFETY_RULE = `
+[초등학교 3학년 아동 보호 절대 규칙 - 반드시 지키세요]
+- 학생이 입력한 표현이 욕설, 비속어, 혐오 표현, 폭력적인 말, 또는 성(性)·신체 비하·19금 어른용 유행어이거나 초등학교 3학년 학생에게 설명하기 부적절한 내용이라면:
+  1) 절대 그 말의 원래 뜻이나 성적인 의미, 욕설의 유래를 풀어서 알려 주지 마세요. (학생들이 비속어나 어른용 표현의 뜻을 알게 되면 안 됩니다.)
+  2) 비속어나 부적절한 단어를 답변 속에 그대로 따라 적지 마세요.
+  3) "이 말은 초등학생이 뜻을 배우거나 사용하는 말이 아니라, 어른들이나 인터넷에서 조심해야 하는 거칠고 부적절한 표현이에요."라고 다정하고 분명하게 안내하세요.
+  4) 대신 평소에 마음을 표현할 때 쓸 수 있는 따뜻하고 건강한 바른 우리말을 제안해 주세요.`.trim();
+
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
@@ -87,6 +113,20 @@ app.post('/api/curator/ask', async (req, res) => {
       return res.status(400).json({ error: '질문이나 궁금한 밈 단어를 입력해 주세요.' });
     }
 
+    if (isRestrictedForElementary(`${memeWord} ${question}`)) {
+      return res.json({
+        topicLabel: '조심해야 할 표현',
+        explanation:
+          '방금 물어본 말은 초등학교 3학년 학생들이 사용하는 말이 아니에요. 어른들이나 일부 인터넷에서 쓰이는 거친 말 또는 성·신체와 관련된 부적절한 표현이라서, 구체적인 뜻을 배우거나 따라 말하지 않는 것이 안전해요.',
+        properKorean:
+          '기쁘거나 속상하거나 놀란 마음을 전할 때는 “정말 대단해!”, “조금 속상한 일이 있었어”처럼 서로 기분 좋아지는 바른 우리말을 써 보아요.',
+        empathyThought:
+          '이런 부적절하거나 거친 말을 들은 할머니·친구·선생님은 깜짝 놀라며 “어디서 이런 말을 들었을까?” 하고 많이 걱정하고 마음이 상하실 수 있어요.',
+        encouragement:
+          '모르는 말을 함부로 따라 쓰지 않고 따봄쌤에게 먼저 확인해 주어서 정말 안전하고 현명해요!',
+      });
+    }
+
     if (!process.env.GEMINI_API_KEY?.trim()) {
       return res.status(503).json({ error: '따봄쌤 연결 설정을 확인해 주세요.' });
     }
@@ -97,14 +137,16 @@ app.post('/api/curator/ask', async (req, res) => {
 - 학생이 적은 궁금한 단어/밈(비어 있을 수 있음): "${memeWord || '(적지 않음)'}"
 - 학생이 실제로 보낸 질문: "${question || `${memeWord}의 뜻과 바른 우리말, 듣는 사람의 마음이 궁금해요!`}"
 
+${ELEMENTARY_SAFETY_RULE}
+
 [답변 작성 규칙]
-1. 반드시 위 "학생이 실제로 보낸 질문"과 "궁금한 단어/밈"을 직접 읽고 그 의도에 정확히 대답하세요. 다른 예시 단어로 임의로 바꾸지 마세요.
-2. 학생이 첫 번째 칸(단어/밈)을 비워 두고 질문 문장 안에 밈이나 고민을 적었다면, 질문 문장에서 핵심 단어/주제를 찾아 'topicLabel'에 적고 그 내용에 맞춰 답변하세요.
-3. 초등학교 3학년(9~10세)이 바로 이해할 수 있는 다정한 해요체로 작성하세요.
-4. 최근 유행 밈 참고:
+1. 먼저 위 [아동 보호 절대 규칙]에 해당하는지 판단하세요. 해당한다면 절대 원래 뜻이나 성적·비속어 의미를 설명하지 말고, "학생들이 사용하는 말이 아니며 뜻도 배울 필요가 없는 부적절한 표현"이라고 안내하세요. (그 경우 topicLabel은 "조심해야 할 표현"으로 적으세요.)
+2. 안전한 일반 밈·신조어라면 반드시 위 "학생이 실제로 보낸 질문"과 "궁금한 단어/밈"을 직접 읽고 그 의도에 정확히 대답하세요.
+3. 학생이 첫 번째 칸(단어/밈)을 비워 두고 질문 문장 안에 밈이나 고민을 적었다면, 질문 문장에서 핵심 단어/주제를 찾아 'topicLabel'에 적고 그 내용에 맞춰 답변하세요.
+4. 초등학교 3학년(9~10세)이 바로 이해할 수 있는 다정한 해요체로 작성하세요.
+5. 참고 밈:
    - "L을 가져가(Take the L)": 게임이나 놀이에서 졌을 때 패배(Lose의 L)를 놀리며 장난으로 쓰는 말.
    - "67(식스세븐)": 영상·노래에서 유행해 양손을 저울처럼 흔들며 리듬에 맞춰 외치는 숫자 밈.
-   - 그 외 어떤 유행어·신조어·학교생활 말투 질문이 와도 뜻을 쉽고 안전하게 풀어 주고(비속어는 직접 따라 쓰지 않고 순화), 대신 쓸 바른 우리말 문장과 모르는 사람(할머니·전학생 친구 등)의 마음을 따뜻하게 설명하세요.
     `.trim();
 
     const parsed = await generateWithRetry<{
@@ -120,7 +162,7 @@ app.post('/api/curator/ask', async (req, res) => {
         config: {
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           systemInstruction:
-            '당신은 "반짝반짝 바른 우리말 3D 서당"의 다정하고 지혜로운 따봄쌤입니다. 초등학교 3학년 학동이 물어보는 모든 밈, 유행어, 말투, 소통 고민에 대해 질문 의도를 정확히 짚어 쉽고 안전하게 설명해 줍니다. 절대 예시 단어로 딴소리를 하지 말고, 학생이 실제로 물은 말과 질문에 초점을 맞추어 답변하세요.',
+            '당신은 "반짝반짝 바른 우리말 3D 서당"의 다정하고 지혜로운 따봄쌤입니다. 초등학교 3학년 학동이 물어보는 밈과 말투를 안전하게 지도합니다. 비속어·욕설·성(性) 관련·19금·어른용 부적절한 표현이 들어오면 절대 그 말의 뜻을 설명하거나 따라 쓰지 말고, 초등학생이 사용하는 말이 아님을 다정하고 분명하게 안내하세요. 안전한 밈에 대해서는 학생이 물은 단어와 질문 의도에 정확히 맞추어 답하세요.',
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -230,6 +272,20 @@ app.post('/api/curator/empathy', async (req, res) => {
       return res.status(400).json({ error: '살펴볼 밈 단어를 선택해 주세요.' });
     }
 
+    if (isRestrictedForElementary(`${memeWord} ${studentGuess}`)) {
+      return res.json({
+        listenerThought:
+          listenerRole.includes('할머니') || listenerRole.includes('할아버지')
+            ? '어이구, 우리 귀한 어린이가 어디서 그런 거칠고 어른스러운 말을 들었을까? 뜻도 알 필요가 없는 말이라서 절대 따라 해서는 안 된단다.'
+            : listenerRole.includes('담임') || listenerRole.includes('선생님')
+            ? '이 표현은 초등학교 3학년 친구들이 사용하는 말이 아니라 조심해야 할 거칠거나 부적절한 말이에요. 뜻을 따라 찾지 말고 고운 우리말만 사용하도록 해요.'
+            : '깜짝 놀랐어요! 우리 초등학생 친구들이 쓰는 말이 아닌 것 같아서 괜히 무섭고 마음이 불편해져요.',
+        feelingLabel: '깜짝 놀라고 조심스러운 마음',
+        gentleAdvice:
+          '이 말은 초등학생이 배우거나 사용하는 말이 아니에요. 우리 마음을 전할 때는 “정말 멋져!”, “함께 놀자!”처럼 따뜻하고 바른 우리말을 사용해 보아요.',
+      });
+    }
+
     if (!process.env.GEMINI_API_KEY?.trim()) {
       return res.status(503).json({ error: '서당 연결 설정을 확인해 주세요.' });
     }
@@ -241,22 +297,31 @@ app.post('/api/curator/empathy', async (req, res) => {
     }>((ai) =>
       ai.models.generateContent({
         model: 'gemini-4-hydrogen',
-        contents: `밈 표현: "${memeWord}"\n듣는 사람: "${listenerRole}" (이 밈의 뜻을 전혀 모름)\n학동이 짐작한 생각: "${studentGuess || '어떤 마음이 들지 궁금해요!'}"\n"${listenerRole}"의 입장에서 속마음을 들려주고, 학동의 생각에 다정하게 공감하며 대신 쓸 고운 말을 제안해 주세요.`,
+        contents: `상대방에게 말한 표현(밈): "${memeWord}"
+듣는 사람 역할: "${listenerRole}" (이 밈의 뜻을 모르거나 생소해하는 입장)
+학생이 짐작한 생각: "${studentGuess || '(적지 않음)'}"
+
+${ELEMENTARY_SAFETY_RULE}
+
+[작성 규칙]
+1. 만약 "${memeWord}"가 욕설, 비속어, 성(性) 관련·19금 표현, 혐오 말 등 초등 3학년이 사용하기 부적절한 말이라면 절대 뜻이나 유래를 설명하거나 단어를 그대로 따라 적지 말고, "${listenerRole}"가 깜짝 놀라며 "초등학생이 사용하는 말이 아니니 쓰지 말자"고 걱정하는 마음으로 답하세요.
+2. 안전한 표현이라면 반드시 "${listenerRole}"의 나이·관계·상황에 어울리는 말투와 속마음으로 답하세요. (할머니·할아버지의 정감 있는 말투, 전학생 친구의 소외감·눈치, 1학년 동생의 순수한 호기심, 담임 선생님의 교육적 배려가 뚜렷하게 달라야 합니다.)
+3. gentleAdvice에는 대신 쓸 수 있는 따뜻하고 바른 우리말 문장을 꼭 포함하세요.`,
         config: {
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           systemInstruction:
-            '당신은 전통 한옥 서당 "마음 거울방"의 따봄쌤입니다. 밈의 뜻을 모르는 사람(할머니, 할아버지, 전학 온 친구, 1학년 동생, 담임 선생님 등)이 그 밈을 처음 들었을 때 머릿속으로 어떤 생각을 하고 기분이 어떨지 생생한 1인칭 속마음으로 들려주고, 초등 3학년 학동의 생각에 따뜻하게 공감해 주세요.',
+            '당신은 전통 한옥 서당 "마음 거울방"의 따봄쌤입니다. 초등 3학년 아동 보호를 최우선으로 하며, 비속어·성 관련·어른용 부적절한 말의 뜻은 절대 알려주지 않고 초등학생이 쓰는 말이 아님을 안내합니다. 안전한 밈에 대해서는 듣는 사람 역할별 1인칭 속마음과 바른 우리말을 제안해 주세요.',
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
             properties: {
               listenerThought: {
                 type: Type.STRING,
-                description: '듣는 사람이 속으로 할 법한 실제 생각 (따옴표 없이 1~2문장)',
+                description: '듣는 사람 역할에 딱 맞는 말투의 1인칭 속마음 (따옴표 없이 1~2문장)',
               },
               feelingLabel: {
                 type: Type.STRING,
-                description: '마음을 나타내는 짧은 단어 (예: 어리둥절함, 서운함, 낯설고 벽이 느껴짐)',
+                description: '마음을 나타내는 짧은 단어 (예: 생소하고 궁금함, 소외되고 서먹함, 아리송하고 호기심)',
               },
               gentleAdvice: {
                 type: Type.STRING,

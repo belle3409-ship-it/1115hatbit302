@@ -14,15 +14,20 @@ import {
 } from './data/museumExhibits';
 import {
   auth,
+  deleteClassroomQa,
   deleteQaEntry,
   ensureUserProfile,
+  getOrCreateScholarId,
   publishSharedPhrase,
+  saveClassroomQa,
   saveQaEntry,
   signInWithGoogle,
   signOutUser,
+  subscribeClassroomQa,
   subscribeQaEntries,
   subscribeSharedPhrases,
   updateUserProgress,
+  type ClassroomQaDoc,
   type QaEntryDoc,
   type SharedPhraseDoc,
 } from './services/firebase';
@@ -96,7 +101,9 @@ export default function App() {
   );
 
   const [cloudQaEntries, setCloudQaEntries] = useState<QaEntryDoc[]>([]);
+  const [classroomQaEntries, setClassroomQaEntries] = useState<ClassroomQaDoc[]>([]);
   const [cloudSharedPhrases, setCloudSharedPhrases] = useState<SharedPhraseDoc[]>([]);
+  const [scholarId] = useState<string>(() => getOrCreateScholarId());
   const [authError, setAuthError] = useState<string | null>(null);
 
   // 3D Seodang & UI State
@@ -200,13 +207,29 @@ export default function App() {
         }
       } else {
         setCloudQaEntries([]);
-        setCloudSharedPhrases([]);
       }
     });
     return () => unsub();
   }, []);
 
-  // Firestore real-time subscriptions when optionally signed in
+  // Always sync public classroom boards (shared phrases & classroom Q&A) for all students without login
+  useEffect(() => {
+    const unsubShared = subscribeSharedPhrases(
+      (phrases) => setCloudSharedPhrases(phrases),
+      (err) => console.error('Shared phrases subscription error:', err),
+    );
+    const unsubClassroomQa = subscribeClassroomQa(
+      (entries) => setClassroomQaEntries(entries),
+      (err) => console.error('Classroom QA subscription error:', err),
+    );
+
+    return () => {
+      unsubShared();
+      unsubClassroomQa();
+    };
+  }, []);
+
+  // Personal Q&A subscription when optionally signed in
   useEffect(() => {
     if (!authReady || !authUser) return;
 
@@ -215,14 +238,9 @@ export default function App() {
       (entries) => setCloudQaEntries(entries),
       (err) => console.error('QA subscription error:', err),
     );
-    const unsubShared = subscribeSharedPhrases(
-      (phrases) => setCloudSharedPhrases(phrases),
-      (err) => console.error('Shared phrases error:', err),
-    );
 
     return () => {
       unsubQa();
-      unsubShared();
     };
   }, [authReady, authUser]);
 
@@ -390,10 +408,16 @@ export default function App() {
     const nextStamps = localStampsCount + 1;
     setLocalStampsCount(nextStamps);
 
+    const authorId = authUser?.uid || scholarId;
+
     if (authUser) {
       await saveQaEntry(authUser.uid, entry);
       await updateUserProgress(authUser.uid, { stampsCount: nextStamps }).catch(console.error);
     }
+
+    await saveClassroomQa(authorId, userNickname, entry).catch((err) => {
+      console.error('Failed to sync classroom QA:', err);
+    });
   }
 
   async function handleDeleteQa(entryId: string) {
@@ -403,14 +427,20 @@ export default function App() {
     }
   }
 
+  async function handleDeleteClassroomQa(entryId: string) {
+    if (!authUser) return;
+    await deleteClassroomQa(entryId).catch(console.error);
+  }
+
   async function handlePublishPhrase(payload: {
     memeWord: string;
     properSentence: string;
     empathyNote: string;
   }) {
+    const authorId = authUser?.uid || scholarId;
     const localPhrase: SharedPhraseDoc = {
       id: `local_phrase_${Date.now()}`,
-      authorId: authUser?.uid || 'local_scholar',
+      authorId,
       authorNickname: userNickname,
       visibility: 'public',
       memeWord: payload.memeWord,
@@ -419,9 +449,9 @@ export default function App() {
     };
     setLocalSharedPhrases((prev) => [localPhrase, ...prev].slice(0, 24));
 
-    if (authUser) {
-      await publishSharedPhrase(authUser.uid, userNickname, payload);
-    }
+    await publishSharedPhrase(authorId, userNickname, payload).catch((err) => {
+      console.error('Failed to publish shared phrase to cloud:', err);
+    });
   }
 
   async function handleUpdateNickname(nickname: string) {
@@ -433,7 +463,8 @@ export default function App() {
   }
 
   const displayQaEntries = authUser ? cloudQaEntries : localQaEntries;
-  const displaySharedPhrases = authUser && cloudSharedPhrases.length > 0 ? cloudSharedPhrases : localSharedPhrases;
+  const displaySharedPhrases = cloudSharedPhrases.length > 0 ? cloudSharedPhrases : localSharedPhrases;
+  const canModerateClassroom = Boolean(authUser?.email && authUser.email === 'belle3409@gmail.com');
   const currentZoneMeta = MUSEUM_ZONES.find((z) => z.id === activeZone) || MUSEUM_ZONES[0];
 
   return (
@@ -543,8 +574,10 @@ export default function App() {
         onSelectExhibit={setSelectedExhibitId}
         onClose={() => setPanelOpen(false)}
         isSignedIn={Boolean(authUser)}
+        canModerateClassroom={canModerateClassroom}
         userNickname={userNickname}
         qaEntries={displayQaEntries}
+        classroomQaEntries={classroomQaEntries}
         sharedPhrases={displaySharedPhrases}
         completedQuizzes={localCompletedQuizzes}
         visitedZones={localVisitedZones}
@@ -555,6 +588,7 @@ export default function App() {
         onCompleteQuiz={handleCompleteQuiz}
         onSaveQa={handleSaveQa}
         onDeleteQa={handleDeleteQa}
+        onDeleteClassroomQa={handleDeleteClassroomQa}
         onPublishPhrase={handlePublishPhrase}
         onUpdateNickname={handleUpdateNickname}
       />

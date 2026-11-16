@@ -21,7 +21,7 @@ import {
   type MemeExhibit,
   type MuseumZoneId,
 } from '../data/museumExhibits';
-import type { QaEntryDoc, SharedPhraseDoc } from '../services/firebase';
+import type { ClassroomQaDoc, QaEntryDoc, SharedPhraseDoc } from '../services/firebase';
 import { playMuseumChime, speakKorean, stopSpeaking } from '../utils/audio';
 import { askCuratorApi, checkEmpathyApi, checkTransformApi } from '../utils/curatorClient';
 
@@ -38,8 +38,10 @@ interface ZonePanelProps {
   onSelectExhibit: (id: string) => void;
   onClose: () => void;
   isSignedIn: boolean;
+  canModerateClassroom: boolean;
   userNickname: string;
   qaEntries: QaEntryDoc[];
+  classroomQaEntries: ClassroomQaDoc[];
   sharedPhrases: SharedPhraseDoc[];
   completedQuizzes: string[];
   visitedZones: string[];
@@ -57,6 +59,7 @@ interface ZonePanelProps {
     answer: string;
   }) => Promise<void>;
   onDeleteQa: (entryId: string) => Promise<void>;
+  onDeleteClassroomQa: (entryId: string) => Promise<void>;
   onPublishPhrase: (payload: {
     memeWord: string;
     properSentence: string;
@@ -101,8 +104,10 @@ export function ZonePanel({
   onSelectExhibit,
   onClose,
   isSignedIn,
+  canModerateClassroom,
   userNickname,
   qaEntries,
+  classroomQaEntries,
   sharedPhrases,
   completedQuizzes,
   visitedZones,
@@ -113,6 +118,7 @@ export function ZonePanel({
   onCompleteQuiz,
   onSaveQa,
   onDeleteQa,
+  onDeleteClassroomQa,
   onPublishPhrase,
   onUpdateNickname,
 }: ZonePanelProps) {
@@ -136,9 +142,12 @@ export function ZonePanel({
 
   // Empathy mirror state
   const [listenerRole, setListenerRole] = useState('할머니');
+  const [customEmpathyMeme, setCustomEmpathyMeme] = useState('');
   const [empathyGuess, setEmpathyGuess] = useState('');
   const [empathyLoading, setEmpathyLoading] = useState(false);
   const [empathyResult, setEmpathyResult] = useState<{
+    memeWord: string;
+    listenerRole: string;
     listenerThought: string;
     feelingLabel: string;
     gentleAdvice: string;
@@ -292,12 +301,27 @@ export function ZonePanel({
     setEmpathyLoading(true);
     setEmpathyError(null);
     try {
+      const trimmedCustom = customEmpathyMeme.trim();
+      const trimmedGuess = empathyGuess.trim();
+      const looksLikeShortMeme =
+        !trimmedCustom &&
+        trimmedGuess.length >= 1 &&
+        trimmedGuess.length <= 15 &&
+        !/(기분|생각|당황|서운|모르|화|슬|웃|기쁘|어리둥절|놀|좋아|싫어|것\s*같|할\s*것|될\s*것|궁금|느낌|마음|일까)/.test(trimmedGuess);
+
+      const targetMeme = trimmedCustom || (looksLikeShortMeme ? trimmedGuess : exhibit.memeWord);
+      const targetGuess = looksLikeShortMeme ? '' : trimmedGuess;
+
       const data = await checkEmpathyApi({
-        memeWord: exhibit.memeWord,
+        memeWord: targetMeme,
         listenerRole,
-        studentGuess: empathyGuess.trim(),
+        studentGuess: targetGuess,
       });
-      setEmpathyResult(data);
+      setEmpathyResult({
+        ...data,
+        memeWord: targetMeme,
+        listenerRole,
+      });
       if (soundEnabled) playMuseumChime('discover');
     } catch (err) {
       setEmpathyError(err instanceof Error ? err.message : '잠시 후 다시 시도해 주세요.');
@@ -331,15 +355,19 @@ export function ZonePanel({
       setAskResult(nextResult);
       if (soundEnabled) playMuseumChime('success');
 
-      await onSaveQa({
-        zone: activeZone === 'atrium' ? 'lounge' : activeZone,
-        memeWord: resolvedTopic,
-        question: targetQuestion,
-        properKorean: data.properKorean || '',
-        empathyThought: data.empathyThought || '',
-        answer: `${data.explanation} (${data.encouragement})`,
-      });
-      flashNotice('나의 서당 배움첩에 자동으로 저장했어요!');
+      if (resolvedTopic === '조심해야 할 표현') {
+        flashNotice('먼저 물어봐 주어서 고마워요! 조심해야 할 말은 우리 반 나눔판에 올라가지 않아요.');
+      } else {
+        await onSaveQa({
+          zone: activeZone === 'atrium' ? 'lounge' : activeZone,
+          memeWord: resolvedTopic,
+          question: targetQuestion,
+          properKorean: data.properKorean || '',
+          empathyThought: data.empathyThought || '',
+          answer: `${data.explanation} (${data.encouragement})`,
+        });
+        flashNotice('배움첩과 우리 반 질문 나눔판에 함께 올렸어요!');
+      }
     } catch (err) {
       setAskError(err instanceof Error ? err.message : '잠시 후 다시 시도해 주세요.');
     } finally {
@@ -475,6 +503,9 @@ export function ZonePanel({
                       setQuizChoice(null);
                       setTransformResult(null);
                       setEmpathyResult(null);
+                      setCustomEmpathyMeme('');
+                      setEmpathyGuess('');
+                      setStudentSentence('');
                     }}
                     className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                       selected
@@ -925,7 +956,7 @@ export function ZonePanel({
                   내가 직접 다른 사람의 마음 물어보기
                 </h4>
                 <p className="mt-1 text-xs text-slate-600">
-                  누구에게 “{exhibit.memeWord}”이라고 말했을 때 어떤 생각이 들지 함께 살펴볼까요?
+                  누구에게 “{customEmpathyMeme.trim() || exhibit.memeWord}”이라고 말했을 때 어떤 생각이 들지 함께 살펴볼까요?
                 </p>
               </div>
 
@@ -934,7 +965,10 @@ export function ZonePanel({
                   <button
                     key={role}
                     type="button"
-                    onClick={() => setListenerRole(role)}
+                    onClick={() => {
+                      setListenerRole(role);
+                      setEmpathyResult(null);
+                    }}
                     className={`rounded-lg border px-3 py-1.5 text-xs font-semibold cursor-pointer ${
                       listenerRole === role
                         ? 'border-rose-600 bg-rose-600 text-white'
@@ -947,14 +981,37 @@ export function ZonePanel({
               </div>
 
               <form onSubmit={handleSubmitEmpathy} className="space-y-3">
-                <input
-                  type="text"
-                  maxLength={200}
-                  value={empathyGuess}
-                  onChange={(e) => setEmpathyGuess(e.target.value)}
-                  placeholder={`${listenerRole}은(는) 어떤 기분이나 생각이 들 것 같나요? (비워 두고 바로 물어보기도 가능)`}
-                  className="w-full rounded-xl border border-stone-300 bg-[#FBF6EC] px-3.5 py-2.5 text-sm text-slate-900 focus:border-rose-500 focus:outline-none"
-                />
+                <div>
+                  <label htmlFor="empathy-custom-meme" className="block text-xs font-semibold text-slate-700 mb-1">
+                    들어볼 말 · 밈 직접 적기 (비워 두면 선택된 “{exhibit.memeWord}”로 살펴봐요)
+                  </label>
+                  <input
+                    id="empathy-custom-meme"
+                    type="text"
+                    maxLength={60}
+                    value={customEmpathyMeme}
+                    onChange={(e) => {
+                      setCustomEmpathyMeme(e.target.value);
+                      setEmpathyResult(null);
+                    }}
+                    placeholder={`예: 야르, 럭키비키, 67... (비워 두면 '${exhibit.memeWord}')`}
+                    className="w-full rounded-xl border border-stone-300 bg-[#FBF6EC] px-3.5 py-2.5 text-sm text-slate-900 focus:border-rose-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="empathy-guess" className="block text-xs font-semibold text-slate-700 mb-1">
+                    내가 짐작한 {listenerRole}의 기분 (비워 두고 바로 물어보기도 가능)
+                  </label>
+                  <input
+                    id="empathy-guess"
+                    type="text"
+                    maxLength={200}
+                    value={empathyGuess}
+                    onChange={(e) => setEmpathyGuess(e.target.value)}
+                    placeholder={`${listenerRole}은(는) 어떤 기분이나 생각이 들 것 같나요?`}
+                    className="w-full rounded-xl border border-stone-300 bg-[#FBF6EC] px-3.5 py-2.5 text-sm text-slate-900 focus:border-rose-500 focus:outline-none"
+                  />
+                </div>
                 <button
                   type="submit"
                   disabled={empathyLoading}
@@ -970,7 +1027,7 @@ export function ZonePanel({
               {empathyResult && (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 space-y-2.5">
                   <div className="text-xs font-bold text-rose-800">
-                    {listenerRole}의 생각 · {empathyResult.feelingLabel}
+                    “{empathyResult.memeWord}”을(를) 들은 {empathyResult.listenerRole}의 생각 · {empathyResult.feelingLabel}
                   </div>
                   <p className="text-sm leading-relaxed text-slate-900">
                     “{empathyResult.listenerThought}”
@@ -984,7 +1041,7 @@ export function ZonePanel({
                       onClick={() =>
                         handleSpeak(
                           'empathy_ai',
-                          `${listenerRole}의 생각이에요. ${empathyResult.listenerThought} ${empathyResult.gentleAdvice}`,
+                          `${empathyResult.memeWord}을 들은 ${empathyResult.listenerRole}의 생각이에요. ${empathyResult.listenerThought} ${empathyResult.gentleAdvice}`,
                         )
                       }
                       className="flex items-center gap-1 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100 cursor-pointer"
@@ -997,13 +1054,14 @@ export function ZonePanel({
                       onClick={async () => {
                         await onSaveQa({
                           zone: 'empathy_mirror',
-                          memeWord: exhibit.memeWord,
-                          question: `${listenerRole}이(가) '${exhibit.memeWord}'을 들었을 때의 마음`,
-                          properKorean: exhibit.properKorean,
+                          memeWord: empathyResult.memeWord,
+                          question: `${empathyResult.listenerRole}이(가) '${empathyResult.memeWord}'을 들었을 때의 마음`,
+                          properKorean:
+                            exhibit.memeWord === empathyResult.memeWord ? exhibit.properKorean : '',
                           empathyThought: empathyResult.listenerThought,
                           answer: empathyResult.gentleAdvice,
                         });
-                        flashNotice('마음 거울 기록을 배움첩에 저장했어요!');
+                        flashNotice('마음 거울 기록을 배움첩과 우리 반 나눔판에 저장했어요!');
                       }}
                       className="flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 cursor-pointer"
                     >
@@ -1042,7 +1100,10 @@ export function ZonePanel({
                     type="text"
                     maxLength={60}
                     value={askMemeWord}
-                    onChange={(e) => setAskMemeWord(e.target.value)}
+                    onChange={(e) => {
+                      setAskMemeWord(e.target.value);
+                      setAskResult(null);
+                    }}
                     placeholder="예: L을 가져가, 67(식스세븐), 럭키비키..."
                     className="w-full rounded-xl border border-stone-300 bg-[#FBF6EC] px-3.5 py-2.5 text-sm text-slate-900 focus:border-violet-600 focus:outline-none"
                   />
@@ -1108,6 +1169,87 @@ export function ZonePanel({
                     <p><strong className="text-rose-800">3. 모르는 사람의 마음:</strong> {askResult.empathyThought}</p>
                     <p className="text-xs font-medium text-violet-800 pt-1">{askResult.encouragement}</p>
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Real-time Classroom Q&A Board (synced across students & teacher without login) */}
+            <div className="rounded-2xl border border-violet-200 bg-white p-5 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h4 className="font-display text-base font-bold text-slate-900">
+                    우리 반 질문·답변 나눔판 (실시간 연동)
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    선생님과 친구들이 물어본 질문과 따봄쌤 풀이가 로그인 없이도 실시간으로 함께 보여요.
+                  </p>
+                </div>
+                <span className="text-xs font-semibold text-violet-700 tabular-nums whitespace-nowrap shrink-0">
+                  {classroomQaEntries.length}개 공유됨
+                </span>
+              </div>
+
+              {classroomQaEntries.length === 0 ? (
+                <p className="rounded-xl bg-stone-50 p-4 text-xs text-slate-500 text-center">
+                  아직 우리 반 나눔판에 올라온 질문이 없어요. 첫 번째 질문을 보내 보세요!
+                </p>
+              ) : (
+                <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                  {classroomQaEntries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="rounded-xl border border-violet-100 bg-[#FAF7FF] p-3.5 space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-semibold text-violet-800 whitespace-nowrap shrink-0">
+                            {entry.authorNickname}
+                          </span>
+                          <span className="text-xs text-slate-400" aria-hidden="true">·</span>
+                          <span className="text-sm font-bold text-slate-900 truncate">
+                            {entry.memeWord}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSpeak(
+                                `class_${entry.id}`,
+                                `${entry.authorNickname}의 질문이에요. ${entry.question}. ${entry.answer} ${entry.properKorean ? `바른 우리말: ${entry.properKorean}` : ''}`,
+                              )
+                            }
+                            aria-label="우리 반 질문 답변 듣기"
+                            className="rounded-md p-1.5 text-slate-600 hover:bg-violet-100 cursor-pointer"
+                          >
+                            <Volume2 className="h-4 w-4" />
+                          </button>
+                          {canModerateClassroom && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteClassroomQa(entry.id)}
+                              aria-label="우리 반 나눔판에서 삭제"
+                              className="rounded-md p-1.5 text-slate-500 hover:bg-rose-100 hover:text-rose-700 cursor-pointer"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs font-medium text-slate-700">Q. {entry.question}</p>
+                      <p className="text-xs leading-relaxed text-slate-800">{entry.answer}</p>
+                      {entry.properKorean && (
+                        <p className="text-xs font-semibold text-emerald-700">
+                          바른 말: {entry.properKorean}
+                        </p>
+                      )}
+                      {entry.empathyThought && (
+                        <p className="text-xs text-rose-700">
+                          듣는 사람 마음: {entry.empathyThought}
+                        </p>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

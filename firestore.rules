@@ -20,6 +20,17 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isTeacherAdmin() {
+      return isVerified() && request.auth.token.email == 'belle3409@gmail.com';
+    }
+
+    function isValidClassroomAuthor(authorId) {
+      return isValidId(authorId) && (
+        (isVerified() && authorId == request.auth.uid) ||
+        (!isSignedIn() && authorId.size() >= 10 && authorId.size() <= 64 && authorId.matches('^scholar_[a-zA-Z0-9_\\-]+$'))
+      );
+    }
+
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -126,13 +137,49 @@ service cloud.firestore {
           'empathyNote',
           'createdAt'
         ])
-        && data.authorId == request.auth.uid
-        && isValidId(data.authorId)
+        && isValidClassroomAuthor(data.authorId)
         && isValidString(data.authorNickname, 1, 40)
         && data.visibility == 'public'
         && isValidString(data.memeWord, 1, 60)
         && isValidString(data.properSentence, 1, 180)
         && isValidString(data.empathyNote, 0, 200)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidClassroomQa(data) {
+      return data.keys().hasAll([
+          'authorId',
+          'authorNickname',
+          'visibility',
+          'zone',
+          'memeWord',
+          'question',
+          'properKorean',
+          'empathyThought',
+          'answer',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'authorId',
+          'authorNickname',
+          'visibility',
+          'zone',
+          'memeWord',
+          'question',
+          'properKorean',
+          'empathyThought',
+          'answer',
+          'createdAt'
+        ])
+        && isValidClassroomAuthor(data.authorId)
+        && isValidString(data.authorNickname, 1, 40)
+        && data.visibility == 'public'
+        && data.zone in ['meme_meaning', 'proper_korean', 'empathy_mirror', 'lounge']
+        && isValidString(data.memeWord, 1, 60)
+        && isValidString(data.question, 1, 240)
+        && isValidString(data.properKorean, 0, 240)
+        && isValidString(data.empathyThought, 0, 300)
+        && isValidString(data.answer, 1, 600)
         && data.createdAt is timestamp;
     }
 
@@ -183,16 +230,27 @@ service cloud.firestore {
     }
 
     match /sharedPhrases/{phraseId} {
-      allow get: if isValidId(phraseId) && isSignedIn() && existing().visibility == 'public';
-      allow list: if isSignedIn() && existing().visibility == 'public';
+      allow get: if isValidId(phraseId) && existing().visibility == 'public';
+      allow list: if existing().visibility == 'public';
       allow create: if isValidId(phraseId)
-        && isVerified()
         && isValidSharedPhrase(incoming())
         && incoming().createdAt == request.time;
       allow update: if false;
       allow delete: if isValidId(phraseId)
         && isVerified()
-        && existing().authorId == request.auth.uid;
+        && (existing().authorId == request.auth.uid || isTeacherAdmin());
+    }
+
+    match /classroomQa/{entryId} {
+      allow get: if isValidId(entryId) && existing().visibility == 'public';
+      allow list: if existing().visibility == 'public';
+      allow create: if isValidId(entryId)
+        && isValidClassroomQa(incoming())
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(entryId)
+        && isVerified()
+        && (existing().authorId == request.auth.uid || isTeacherAdmin());
     }
   }
 }

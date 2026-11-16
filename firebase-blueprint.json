@@ -177,6 +177,83 @@
         "empathyNote",
         "createdAt"
       ]
+    },
+    "ClassroomQa": {
+      "title": "ClassroomQa",
+      "description": "A shared non-PII Q&A, meme transformation, or empathy reflection visible across the classroom so students and the teacher stay synced without mandatory login.",
+      "type": "object",
+      "properties": {
+        "authorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID or persistent local scholar ID."
+        },
+        "authorNickname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Non-PII explorer nickname."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public"],
+          "description": "Explicit visibility flag enforced by list rules."
+        },
+        "zone": {
+          "type": "string",
+          "enum": ["meme_meaning", "proper_korean", "empathy_mirror", "lounge"],
+          "description": "Seodang zone where this entry was created."
+        },
+        "memeWord": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "The meme or slang expression studied."
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "The student's question or practice prompt."
+        },
+        "properKorean": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 240,
+          "description": "Proper Korean alternative sentence."
+        },
+        "empathyThought": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 300,
+          "description": "How someone unfamiliar with the meme might feel."
+        },
+        "answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "description": "Teacher explanation or quiz feedback."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        }
+      },
+      "required": [
+        "authorId",
+        "authorNickname",
+        "visibility",
+        "zone",
+        "memeWord",
+        "question",
+        "properKorean",
+        "empathyThought",
+        "answer",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -197,6 +274,12 @@
         "$ref": "#/entities/SharedPhrase"
       },
       "description": "Shared classroom gallery wall of proper Korean replacements."
+    },
+    "/classroomQa/{entryId}": {
+      "schema": {
+        "$ref": "#/entities/ClassroomQa"
+      },
+      "description": "Shared classroom Q&A board synced in real time between teacher and students."
     }
   }
 }
